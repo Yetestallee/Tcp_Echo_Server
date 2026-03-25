@@ -9,8 +9,9 @@
     网络环境: 本地环回地址 (127.0.0.1) 或局域网互通
 
 📁 文件结构
-
-/project-root
+/Tcp_Echo_Server
+|--README               #本文件
+/res
 ├── server.cpp          # 服务器端源代码
 ├── client.cpp          # 客户端源代码
 └── README.md           # 项目说明文档（本文件）
