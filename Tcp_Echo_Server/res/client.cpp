@@ -1,13 +1,56 @@
-#include<cstdio>
-#include<cstdlib>
-#include<cstring>
-#include<unistd.h>
-#include<sys/socket.h>
-#include<netinet/in.h>
-#include<arpa/inet.h>
+#include "common.h"
 
-#define PORT 8888
-#define BUF_SIZE 1024
+// 套接字优化实现
+int optimize_socket(int fd) {
+    int reuse = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == -1) {
+        perror("setsockopt SO_REUSEADDR");
+        return -1;
+    }
+
+    int rcv_buf = 8 * 1024;
+    if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcv_buf, sizeof(rcv_buf)) == -1) {
+        perror("setsockopt SO_RCVBUF");
+        return -1;
+    }
+
+    int snd_buf = 8 * 1024;
+    if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &snd_buf, sizeof(snd_buf)) == -1) {
+        perror("setsockopt SO_SNDBUF");
+        return -1;
+    }
+
+    int keepalive = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive)) == -1) {
+        perror("setsockopt SO_KEEPALIVE");
+        return -1;
+    }
+    return 0;
+}
+
+// 回收僵尸进程
+void handle_sigchld(int sig) {
+    (void)sig;
+    while (waitpid(-1, NULL, WNOHANG) > 0);
+}
+
+// 日志函数（多进程不用，但保留兼容）
+pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+void write_log(const char* client_ip, int client_port, const char* event) {
+    pthread_mutex_lock(&log_mutex);
+    time_t now = time(NULL);
+    struct tm* tm_info = localtime(&now);
+    char time_str[64];
+    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
+
+    FILE* fp = fopen(LOG_FILE, "a");
+    if (fp) {
+        fprintf(fp, "[%s] %s:%d - %s\n", time_str, client_ip, client_port, event);
+        fclose(fp);
+    }
+    pthread_mutex_unlock(&log_mutex);
+}
+
 
 int main(int argc,char* argv[]){
     //检查命令行参数，确保用户提供了服务器IP地址
@@ -22,10 +65,17 @@ int main(int argc,char* argv[]){
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
+     // 2. 优化套接字（可选，客户端也可优化）
+    if (optimize_socket(client_fd) == -1) {
+        close(client_fd);
+        exit(EXIT_FAILURE);
+    }
     //配置服务器
     struct sockaddr_in server_addr;
     //设置为IPV4地址
     server_addr.sin_family=AF_INET;
+    //清空结构体，避免垃圾数据
+    memset(&server_addr, 0, sizeof(server_addr));
     //监听端口，htons函数将主机字节序转换为网络字节序
     server_addr.sin_port=htons(PORT);
     //将服务器IP地址从字符串转换为二进制形式
