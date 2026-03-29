@@ -1,91 +1,262 @@
-📋 项目概述
-本项目基于 C++ 编程语言实现了 TCP 协议下的回声服务器（Echo Server）与回声客户端（Echo Client）。服务器端接收客户端连接后，将客户端发送的数据原封不动地返回给客户端；客户端负责向服务器发送数据并接收回显，用于验证网络连接及数据传输的稳定性。
-
-⚙️ 环境依赖
-
-    操作系统: Windows / Linux
-    编译器: GCC (G++) / MinGW / MSVC
-    构建工具: 支持 C++11 及以上标准的编译器
-    网络环境: 本地环回地址 (127.0.0.1) 或局域网互通
-
-📁 文件结构
-/Tcp_Echo_Server
-
-|--README               #项目说明文档（本文件）
-
-/res
-
-├── server.cpp          # 服务器端源代码
-
-├── client.cpp          # 客户端源代码
-
-
-
-🚀 编译与运行
-1. 代码编译
-使用 g++ 编译器进行编译，生成可执行文件。
-Linux /macOS 环境:
-# 编译服务器端
-
-g++ server.cpp -o server -std=c++11
-
+该项目基于 Linux 下的 Socket 编程，实现了多线程、多进程两种版本的 TCP 回声服务器，以及配套的客户端程序。服务器接收客户端发送的数据并原样回显，包含套接字优化、日志记录、僵尸进程回收等工业级特性。
+一、项目特性
+✅ 支持多线程 / 多进程并发处理客户端连接
+✅ 套接字优化（端口复用、收发缓冲区调整、保活机制）
+✅ 完善的日志记录（客户端连接 / 断开 / 异常日志）
+✅ 僵尸进程自动回收（多进程版本）
+✅ 客户端支持 exit 指令安全退出
+✅ 跨函数 / 文件的公共常量与函数封装（common.h）
+二、环境要求
+表格
+环境 / 工具	要求
+操作系统	Linux（Ubuntu/CentOS 等，依赖 POSIX 接口）
+编译器	GCC（支持 C++11 及以上）
+依赖	标准库（pthread、socket、netinet 等）
+三、文件结构
+plaintext
+.
+├── common.h          # 公共常量、函数声明（端口、缓冲区、日志路径等）
+├── client.cpp        # TCP 客户端实现（连接服务器、收发数据）
+├── thread_server.cpp # 多线程版本服务器（并发处理客户端）
+├── process_server.cpp# 多进程版本服务器（fork 子进程处理客户端）
+├── server.log        # 日志文件（自动生成，记录客户端连接/断开日志）
+└── README.md         # 项目说明文档
+四、编译步骤
+方式 1：手动编译（单文件）
+bash
+运行
 # 编译客户端
+g++ client.cpp -o client -lpthread
 
-g++ client.cpp -o client -std=c++11
+# 编译多线程服务器
+g++ thread_server.cpp -o thread_server -lpthread
+
+# 编译多进程服务器
+g++ process_server.cpp -o process_server -lpthread
+方式 2：Makefile（推荐，简化编译）
+创建 Makefile 文件，内容如下：
+makefile
+CC = g++
+CFLAGS = -Wall -Wextra -lpthread
+TARGETS = client thread_server process_server
+
+all: $(TARGETS)
+
+client: client.cpp common.h
+	$(CC) $< -o $@ $(CFLAGS)
+
+thread_server: thread_server.cpp common.h
+	$(CC) $< -o $@ $(CFLAGS)
+
+process_server: process_server.cpp common.h
+	$(CC) $< -o $@ $(CFLAGS)
+
+clean:
+	rm -f $(TARGETS) server.log
+执行编译：
+bash
+运行
+make
+清理编译产物：
+bash
+运行
+make clean
+五、运行步骤
+1. 启动服务器
+方式 A：多线程服务器
+bash
+运行
+./thread_server
+输出示例：
+plaintext
+===== 多线程回声服务器已启动 =====
+监听端口: 8888
+日志文件: server.log
+=================================
+方式 B：多进程服务器
+bash
+运行
+./process_server
+输出示例：
+plaintext
+多进程服务器已启动 :8888
+2. 启动客户端
+bash
+运行
+# 格式：./client <服务器IP地址>
+./client 127.0.0.1  # 本地测试用 127.0.0.1，远程服务器替换为实际IP
+输出示例：
+plaintext
+成功连接到服务器 127.0.0.1:8888
+请输入要发送的数据：
+3. 功能测试
+在客户端输入任意文本，服务器会原样回显：
+plaintext
+请输入要发送的数据：Hello Server!
+服务器返回的数据：Hello Server!
+
+请输入要发送的数据：exit  # 输入 exit 退出客户端
+六、核心功能说明
+表格
+模块	说明
+套接字优化	optimize_socket 函数实现：
+- SO_REUSEADDR：端口复用，避免服务器重启后端口占用
+- SO_RCVBUF/SO_SNDBUF：调整收发缓冲区大小（8KB）
+- SO_KEEPALIVE：开启 TCP 保活，检测无效连接
+日志记录	write_log 函数：
+- 线程安全（互斥锁），记录客户端 IP / 端口、事件（连接 / 断开 / 异常）
+- 日志文件：server.log，格式 [时间] 客户端 IP:端口 - 事件
+多线程处理	主线程监听连接，每个客户端连接创建独立线程处理，线程分离（无需主线程 join）
+多进程处理	主线程监听连接，fork 子进程处理客户端，信号处理函数回收僵尸进程
+客户端退出	输入 exit 触发退出逻辑，关闭套接字并释放资源
+七、注意事项
+端口占用：默认端口为 8888，若端口被占用，可修改 common.h 中的 PORT 常量（需重新编译）。
+日志文件：服务器运行时自动生成 server.log，记录客户端连接 / 断开日志，可直接查看：
+bash
+运行
+cat server.log
+权限问题：若编译 / 运行时报权限错误，执行 chmod +x client thread_server process_server 赋予可执行权限。
+远程连接：若客户端需连接远程服务器，需确保服务器防火墙开放 8888 端口，且服务器绑定 0.0.0.0（代码中已设置 INADDR_ANY）。
+异常处理：代码包含基础的错误处理（如 socket 创建失败、connect 失败、recv/send 异常），可根据需求扩展。
+八、扩展建议
+增加客户端超时机制（设置 SO_RCVTIMEO/SO_SNDTIMEO）。
+支持二进制数据传输（当前仅支持文本）。
+增加服务器配置文件（端口、缓冲区大小等从配置文件读取）。
+实现客户端 / 服务器的断线重连机制。
+增加日志轮转（避免 server.log 过大）。# TCP 回声服务器 / 客户端（C++ 实现）
+该项目基于 Linux 下的 Socket 编程，实现了多线程、多进程两种版本的 TCP 回声服务器，以及配套的客户端程序。服务器接收客户端发送的数据并原样回显，包含套接字优化、日志记录、僵尸进程回收等工业级特性。
+一、项目特性
+✅ 支持多线程 / 多进程并发处理客户端连接
+✅ 套接字优化（端口复用、收发缓冲区调整、保活机制）
+✅ 完善的日志记录（客户端连接 / 断开 / 异常日志）
+✅ 僵尸进程自动回收（多进程版本）
+✅ 客户端支持 exit 指令安全退出
+✅ 跨函数 / 文件的公共常量与函数封装（common.h）
+二、环境要求
+表格
+环境 / 工具	要求
+操作系统	Linux（Ubuntu/CentOS 等，依赖 POSIX 接口）
+编译器	GCC（支持 C++11 及以上）
+依赖	标准库（pthread、socket、netinet 等）
+三、文件结构
+plaintext
+.
+├── common.h          # 公共常量、函数声明（端口、缓冲区、日志路径等）
+├── client.cpp        # TCP 客户端实现（连接服务器、收发数据）
+├── thread_server.cpp # 多线程版本服务器（并发处理客户端）
+├── process_server.cpp# 多进程版本服务器（fork 子进程处理客户端）
+├── server.log        # 日志文件（自动生成，记录客户端连接/断开日志）
+└── README.md         # 项目说明文档
+四、编译步骤
+方式 1：手动编译（单文件）
+bash
+运行
+# 编译客户端
+g++ client.cpp -o client -lpthread
+
+# 编译多线程服务器
+g++ thread_server.cpp -o thread_server -lpthread
+
+# 编译多进程服务器
+g++ process_server.cpp -o process_server -lpthread
+方式 2：Makefile（推荐，简化编译）
+创建 Makefile 文件，内容如下：
+makefile
+CC = g++
+CFLAGS = -Wall -Wextra -lpthread
+TARGETS = client thread_server process_server
+
+all: $(TARGETS)
+
+client: client.cpp common.h
+	$(CC) $< -o $@ $(CFLAGS)
+
+thread_server: thread_server.cpp common.h
+	$(CC) $< -o $@ $(CFLAGS)
+
+process_server: process_server.cpp common.h
+	$(CC) $< -o $@ $(CFLAGS)
+
+clean:
+	rm -f $(TARGETS) server.log
+执行编译：
+bash
+运行
+make
+清理编译产物：
+bash
+运行
+make clean
+五、运行步骤
+1. 启动服务器
+方式 A：多线程服务器
+bash
+运行
+./thread_server
+输出示例：
+plaintext
+===== 多线程回声服务器已启动 =====
+监听端口: 8888
+日志文件: server.log
+=================================
+方式 B：多进程服务器
+bash
+运行
+./process_server
+输出示例：
+plaintext
+多进程服务器已启动 :8888
+2. 启动客户端
+bash
+运行
+# 格式：./client <服务器IP地址>
+./client 127.0.0.1  # 本地测试用 127.0.0.1，远程服务器替换为实际IP
+输出示例：
+plaintext
+成功连接到服务器 127.0.0.1:8888
+请输入要发送的数据：
+3. 功能测试
+在客户端输入任意文本，服务器会原样回显：
+plaintext
+请输入要发送的数据：Hello Server!
+服务器返回的数据：Hello Server!
+
+请输入要发送的数据：exit  # 输入 exit 退出客户端
+六、核心功能说明
+表格
+模块	说明
+套接字优化	optimize_socket 函数实现：
+- SO_REUSEADDR：端口复用，避免服务器重启后端口占用
+- SO_RCVBUF/SO_SNDBUF：调整收发缓冲区大小（8KB）
+- SO_KEEPALIVE：开启 TCP 保活，检测无效连接
+日志记录	write_log 函数：
+- 线程安全（互斥锁），记录客户端 IP / 端口、事件（连接 / 断开 / 异常）
+- 日志文件：server.log，格式 [时间] 客户端 IP:端口 - 事件
+多线程处理	主线程监听连接，每个客户端连接创建独立线程处理，线程分离（无需主线程 join）
+多进程处理	主线程监听连接，fork 子进程处理客户端，信号处理函数回收僵尸进程
+客户端退出	输入 exit 触发退出逻辑，关闭套接字并释放资源
+七、注意事项
+端口占用：默认端口为 8888，若端口被占用，可修改 common.h 中的 PORT 常量（需重新编译）。
+日志文件：服务器运行时自动生成 server.log，记录客户端连接 / 断开日志，可直接查看：
+bash
+运行
+cat server.log
+权限问题：若编译 / 运行时报权限错误，执行 chmod +x client thread_server process_server 赋予可执行权限。
+远程连接：若客户端需连接远程服务器，需确保服务器防火墙开放 8888 端口，且服务器绑定 0.0.0.0（代码中已设置 INADDR_ANY）。
+异常处理：代码包含基础的错误处理（如 socket 创建失败、connect 失败、recv/send 异常），可根据需求扩展。
+八、扩展建议
+增加客户端超时机制（设置 SO_RCVTIMEO/SO_SNDTIMEO）。
+支持二进制数据传输（当前仅支持文本）。
+增加服务器配置文件（端口、缓冲区大小等从配置文件读取）。
+实现客户端 / 服务器的断线重连机制。
+增加日志轮转（避免 server.log 过大）。
 
 
-Windows (MinGW) 环境:
 
-g++ server.cpp -o server.exe -std=c++11
-g++ client.cpp -o client.exe -std=c++11
 
-2. 程序运行
-运行顺序：必须先启动服务器，再启动客户端。
-启动服务器
-./server
 
-服务器启动后将监听指定端口（默认配置为 8888），等待客户端连接。
-启动客户端
-在新的终端窗口中执行：
-./client 
 
-客户端启动后，将自动连接至服务器（默认地址为 127.0.0.1）。
-交互测试
 
-    在客户端控制台输入任意字符串并回车。
-    服务器接收数据后，会将原数据发送回客户端。
-    客户端接收并打印回显数据，实现 “回声” 效果。
-
-🔧 核心功能与技术点
-服务器端 (server.cpp)
-
-    创建套接字: 使用 socket() 创建流式套接字 (SOCK_STREAM)。
-    绑定地址与端口: 使用 bind() 将套接字绑定到本地地址和端口。
-    监听连接: 使用 listen() 监听客户端连接请求。
-    接受连接: 使用 accept() 阻塞等待客户端连接，建立通信通道。
-    数据收发: 使用 recv() 和 send() 进行数据的接收与回传。
-
-客户端 (client.cpp)
-
-    创建套接字: 与服务器端一致。
-    发起连接: 使用 connect() 主动连接服务器地址。
-    数据交互: 从标准输入读取数据，发送至服务器并打印接收的回显数据。
-
-📝 代码规范说明
-
-    严格遵循 C++ 语法标准，兼容 C 风格网络编程接口。
-    关键系统调用（如 socket, bind, listen, accept）均包含详细错误处理。
-    代码结构清晰，变量命名规范，适合作为课程设计或网络编程实验参考。
-
-🐛 常见问题排查
-
-    客户端连接超时 / 拒绝:
-        确认服务器已先启动。
-        确认端口号未被占用或防火墙未拦截。
-    数据乱码 / 接收不全:
-        检查 recv 的缓冲区大小及循环接收逻辑。
-    跨平台编译错误:
-        Linux 下注意链接库 (如 -lpthread)，Windows 下需包含 <winsock2.h> 并初始化 WSADATA。
-
-📄 许可证
-本项目代码仅供学习与教学参考，请勿直接抄袭用于正式课程作业提交。
+写一个 Makefile 示例
+多线程和多进程版本的服务器有什么区别？
+如何在代码中实现僵尸进程回收？
